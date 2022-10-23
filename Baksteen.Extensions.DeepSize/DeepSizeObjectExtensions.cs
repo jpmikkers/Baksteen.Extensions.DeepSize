@@ -19,6 +19,35 @@ public static class DeepSizeObjectExtensions
     {
         // to handle object graphs containing cycles, _visited keeps track of instances we've already measured
         private readonly HashSet<object> _visited = new(ReferenceEqualityComparer.Instance);
+        private static readonly Dictionary<Type, int> PrimitiveSizeLut;
+        private static readonly long ReferenceSize = Marshal.SizeOf<nint>();
+
+        static DeepSizeContext()
+        {
+            PrimitiveSizeLut = new()
+            {
+                { typeof(bool), 1 },
+                { typeof(byte), 1 },
+                { typeof(sbyte), 1 },
+
+                { typeof(char), 2 },
+                { typeof(short), 2 },
+                { typeof(ushort), 2 },
+
+                { typeof(int), 4 },
+                { typeof(uint), 4 },
+
+                { typeof(long), 8 },
+                { typeof(ulong), 8 },
+
+                { typeof(float), 4 },
+                { typeof(double), 8 },
+                { typeof(decimal), 16 },
+
+                { typeof(nint), Marshal.SizeOf<nint>() },
+                { typeof(nuint), Marshal.SizeOf<nuint>() },
+            };
+        }
 
         public long ObjectSize(object? obj, bool includeInObjectGraph)
         {
@@ -30,7 +59,7 @@ public static class DeepSizeObjectExtensions
                 _visited.Add(obj);
             }
 
-            if(obj is string str) return Marshal.SizeOf<nint>() +       // pointer to char array
+            if(obj is string str) return ReferenceSize +                // pointer to char array
                                      sizeof(int) +                      // array length
                                      sizeof(int) +                      // string length
                                      str.Length * sizeof(char);         // characters
@@ -39,56 +68,56 @@ public static class DeepSizeObjectExtensions
 
             if(type.IsPrimitive)
             {
-                return Marshal.SizeOf(type);
+                return PrimitiveSizeLut[type];
             }
             else if(type.IsPointer)
             {
-                return Marshal.SizeOf(typeof(nint));
+                return PrimitiveSizeLut[typeof(nint)];
             }
             else if(type.IsEnum)
             {
-                return Marshal.SizeOf(type.GetEnumUnderlyingType());
+                return PrimitiveSizeLut[type.GetEnumUnderlyingType()];
             }
             else if(obj is Delegate)
             {
-                return Marshal.SizeOf<nint>() + Marshal.SizeOf<nint>();
+                return 2*ReferenceSize;     // pointer to object + pointer to method
             }
             else if(type.IsArray)
             {
                 var arrayElementType = type.GetElementType()!;
                 var arr = (Array)obj;
 
+                // assume an array uses an int for lower and upper bound per dimension
+                long result = 2L * sizeof(int) * arr.Rank;
+
                 if(arrayElementType.IsPrimitive)
                 {
-                    return sizeof(long) + arr.LongLength * Marshal.SizeOf(arrayElementType);
+                    result += arr.LongLength * PrimitiveSizeLut[arrayElementType];
                 }
                 else if(arrayElementType.IsPointer)
                 {
-                    return sizeof(long) + arr.LongLength * Marshal.SizeOf<nint>();
+                    result += arr.LongLength * ReferenceSize;
                 }
                 else if(arrayElementType.IsEnum)
                 {
-                    return sizeof(long) + arr.LongLength * Marshal.SizeOf(arrayElementType.GetEnumUnderlyingType());
+                    result += arr.LongLength * PrimitiveSizeLut[arrayElementType.GetEnumUnderlyingType()];
                 }
                 else if(arrayElementType.IsValueType)
                 {
-                    long result = sizeof(long);
                     foreach(var el in arr)
                     {
                         result += ObjectSize(el, false);
                     }
-                    return result;
                 }
                 else
                 {
-                    long result = sizeof(long);
                     foreach(var el in arr)
                     {
-                        result += Marshal.SizeOf<nint>();
+                        result += ReferenceSize;
                         result += ObjectSize(el, true);
                     }
-                    return result;
                 }
+                return result;
             }
             else // class or value type
             {
@@ -99,15 +128,15 @@ public static class DeepSizeObjectExtensions
 
                     if(fieldType.IsPrimitive)
                     {
-                        result += Marshal.SizeOf(fieldType);
+                        result += PrimitiveSizeLut[fieldType];
                     }
                     else if(fieldType.IsPointer)
                     {
-                        result += Marshal.SizeOf<nint>();
+                        result += ReferenceSize;
                     }
                     else if(fieldType.IsEnum)
                     {
-                        result += Marshal.SizeOf(fieldType.GetEnumUnderlyingType());
+                        result += PrimitiveSizeLut[fieldType.GetEnumUnderlyingType()];
                     }
                     else if(fieldType.IsValueType)
                     {
@@ -117,7 +146,7 @@ public static class DeepSizeObjectExtensions
                     }
                     else
                     {
-                        result += Marshal.SizeOf<nint>();
+                        result += ReferenceSize;
                         var fieldValue = fieldInfo.GetValue(obj);
                         if(fieldValue != null)
                         {
