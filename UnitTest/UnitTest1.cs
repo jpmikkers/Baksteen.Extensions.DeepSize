@@ -7,7 +7,7 @@ namespace UnitTest
     public class UnitTests
     {
         private const long ArrayRangeSize = 2 * sizeof(int);
-        private static long ReferenceSize = Marshal.SizeOf<nint>();
+        private static readonly long ReferenceSize = Marshal.SizeOf<nint>();
 
         private enum ByteEnum : byte
         {
@@ -104,6 +104,7 @@ namespace UnitTest
         [DataRow(27)]
         public void PrimitiveArraySize(int len)
         {
+            //int len = 11;
             Assert.AreEqual(1 * ArrayRangeSize + len * sizeof(bool), new bool[len].DeepSize());
             Assert.AreEqual(1 * ArrayRangeSize + len * sizeof(sbyte), new sbyte[len].DeepSize());
             Assert.AreEqual(1 * ArrayRangeSize + len * sizeof(byte), new byte[len].DeepSize());
